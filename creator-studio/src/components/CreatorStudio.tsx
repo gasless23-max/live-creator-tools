@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   useWalletConnection,
   useBalance,
@@ -39,14 +39,39 @@ export function CreatorStudio() {
   const [uploading, setUploading] = useState(false);
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>("create");
+  const [saving, setSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  async function fetchCampaigns() {
+    try {
+      const res = await fetch("/api/campaigns");
+      if (res.ok) {
+        const data = await res.json();
+        setCampaigns(data);
+      }
+    } catch {
+      // silent fail for demo
+    }
+  }
+
+  useEffect(() => {
+    fetchCampaigns();
+  }, []);
 
   async function handleMediaUpload(file: File) {
     setUploading(true);
     try {
-      await new Promise((r) => setTimeout(r, 1200));
-      const fakeUrl = URL.createObjectURL(file);
-      setForm((f) => ({ ...f, mediaUrl: fakeUrl }));
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/media/upload", {
+        method: "POST",
+        body: fd,
+      });
+      if (!res.ok) throw new Error("Upload failed");
+      const data = await res.json();
+      setForm((f) => ({ ...f, mediaUrl: data.url }));
+    } catch (err) {
+      console.error(err);
     } finally {
       setUploading(false);
     }
@@ -55,32 +80,50 @@ export function CreatorStudio() {
   async function createCampaign() {
     if (!session || !form.title || !form.budgetSol) return;
 
-    const lamports = BigInt(Math.floor(parseFloat(form.budgetSol) * 1e9));
+    setSaving(true);
+    try {
+      const lamports = BigInt(Math.floor(parseFloat(form.budgetSol) * 1e9));
 
-    await send({
-      destination: TREASURY,
-      amount: lamports,
-    });
+      await send({
+        destination: TREASURY,
+        amount: lamports,
+      });
 
-    const newCampaign = {
-      id: crypto.randomUUID(),
-      ...form,
-      creator: address?.toString(),
-      txSignature: signature,
-      status: "live",
-      createdAt: new Date().toISOString(),
-    };
+      const payload = {
+        title: form.title,
+        description: form.description,
+        budgetSol: form.budgetSol,
+        targetNetwork: form.targetNetwork,
+        mediaUrl: form.mediaUrl,
+        creator: address?.toString(),
+        txSignature: signature,
+        status: "live",
+      };
 
-    setCampaigns((prev) => [newCampaign, ...prev]);
+      const res = await fetch("/api/campaigns", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
-    setForm({
-      title: "",
-      description: "",
-      budgetSol: "0.5",
-      targetNetwork: "Solana",
-      mediaUrl: "",
-    });
-    setActiveTab("live");
+      if (!res.ok) throw new Error("Failed to save campaign");
+
+      const saved = await res.json();
+      setCampaigns((prev) => [saved, ...prev]);
+
+      setForm({
+        title: "",
+        description: "",
+        budgetSol: "0.5",
+        targetNetwork: "Solana",
+        mediaUrl: "",
+      });
+      setActiveTab("live");
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (status !== "connected") {
@@ -223,10 +266,10 @@ export function CreatorStudio() {
 
                 <button
                   onClick={createCampaign}
-                  disabled={isSending || !form.title || !form.budgetSol}
+                  disabled={isSending || saving || !form.title || !form.budgetSol}
                   className="w-full py-4 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 font-medium text-base disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98] transition shadow-lg shadow-cyan-500/20"
                 >
-                  {isSending
+                  {isSending || saving
                     ? "Confirming payment…"
                     : `Launch · ${form.budgetSol} SOL`}
                 </button>

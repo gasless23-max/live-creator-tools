@@ -1,0 +1,17 @@
+{
+  "name": "live-creator-tools",
+  "private": true,
+  "workspaces": [
+    "creator-studio",
+    "server"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace=server\" \"npm run dev --workspace=creator-studio\"",
+    "dev:server": "npm run dev --workspace=server",
+    "dev:client": "npm run dev --workspace=creator-studio",
+    "build": "npm run build --workspace=creator-studio"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  }
+}
