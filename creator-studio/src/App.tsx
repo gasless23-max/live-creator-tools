@@ -1,12 +1,11 @@
-import { Providers } from "./Providers";
+import { Providers } from "./providers";
 import { CreatorStudio } from "./components/CreatorStudio";
+import "./index.css";
 
-function App() {
+export default function App() {
   return (
     <Providers>
       <CreatorStudio />
     </Providers>
   );
 }
-
-export default App;
