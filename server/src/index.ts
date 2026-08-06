@@ -3,8 +3,15 @@ import cors from "cors";
 import multer from "multer";
 import path from "path";
 import { fileURLToPath } from "url";
+import { v2 as cloudinary } from "cloudinary";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -12,15 +19,7 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, path.join(__dirname, "uploads"));
-  },
-  filename: (_req, file, cb) => {
-    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}${path.extname(file.originalname)}`;
-    cb(null, unique);
-  },
-});
+const storage = multer.memoryStorage();
 
 const upload = multer({
   storage,
@@ -41,12 +40,29 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-app.post("/api/media/upload", upload.single("file"), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: "No file uploaded" });
+app.post("/api/media/upload", upload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    const resourceType = req.file.mimetype.startsWith("video/") ? "video" : "image";
+
+    const result = await new Promise<any>((resolve, reject) => {
+      cloudinary.uploader.upload_stream(
+        { resource_type: resourceType, folder: "creator-studio" },
+        (error, result) => {
+          if (error) reject(error);
+          else resolve(result);
+        }
+      ).end(req.file!.buffer);
+    });
+
+    res.json({ url: result.secure_url, publicId: result.public_id, resourceType: result.resource_type });
+  } catch (err: any) {
+    console.error("Cloudinary upload error:", err);
+    res.status(500).json({ error: err.message || "Upload failed" });
   }
-  const url = `/uploads/${req.file.filename}`;
-  res.json({ url, filename: req.file.filename, size: req.file.size });
 });
 
 app.get("/api/campaigns", (_req, res) => {
@@ -62,8 +78,6 @@ app.post("/api/campaigns", (req, res) => {
   campaigns.unshift(campaign);
   res.status(201).json(campaign);
 });
-
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);
